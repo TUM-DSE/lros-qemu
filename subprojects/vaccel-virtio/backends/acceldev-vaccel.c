@@ -4,7 +4,12 @@
 #include "../include/standard-headers/linux/virtio_accel.h"
 #include "../include/standard-headers/linux/accel.h"
 #include "qom/object.h"
+
+/* Work around a -Wstrict-prototypes warning in slog headers */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-prototypes"
 #include <vaccel.h>
+#pragma GCC diagnostic pop
 
 
 /**

@@ -20,13 +20,15 @@ typedef struct AccelDevBackend AccelDevBackend;
 typedef struct AccelDevBackendArg {
     uint8_t *buf;
     uint32_t len;
+    uint8_t type;
+    uint32_t custom_type_id;
 } AccelDevBackendArg;
 
 typedef struct AccelDevBackendInfo {
-    uint32_t in_nr;
     uint32_t out_nr;
-    AccelDevBackendArg *in;
+    uint32_t in_nr;
     AccelDevBackendArg *out;
+    AccelDevBackendArg *in;
 } AccelDevBackendInfo;
 
 typedef struct AccelDevBackendSessionInfo {

@@ -15,6 +15,8 @@
 struct accel_arg {
 	uint32_t len;
 	unsigned char *buf;
+	uint8_t type;
+	uint32_t custom_type_id;
 };
 
 struct accel_op {
