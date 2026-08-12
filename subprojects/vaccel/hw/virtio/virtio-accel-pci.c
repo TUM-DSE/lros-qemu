@@ -37,9 +37,19 @@ static void virtio_accel_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
         error_setg(errp, "'runtime' parameter expects a valid object");
         return;
     }
-    //virtio_pci_force_virtio_1(vpci_dev);
-    virtio_pci_disable_modern(vpci_dev);
-    virtio_pci_legacy(vpci_dev);
+    /*
+     * Let the generic disable-legacy/disable-modern properties decide the
+     * transport, instead of hardwiring one here.  Unikraft speaks legacy
+     * virtio only and already passes "disable-legacy=off,disable-modern=on",
+     * which gets it exactly what forcing used to; guests that want virtio-1
+     * (miniOSv on aarch64, where there is no port I/O to reach a legacy
+     * device's I/O BAR) pass "disable-legacy=on" and get the modern layout.
+     *
+     * Note this device is not registered with transitional/non-transitional
+     * variants, so proxy->trans_devid stays 0 and the legacy device ID comes
+     * from the class below.  Modern mode overwrites it in
+     * virtio_pci_device_plugged() with 0x1040 + VIRTIO_ID_ACCEL.
+     */
     if (!qdev_realize(vdev, BUS(&vpci_dev->bus), errp)) {
         return;
     }
