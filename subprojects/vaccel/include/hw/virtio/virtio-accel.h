@@ -44,6 +44,9 @@ typedef struct VirtIOAccelReq {
     uint32_t flags;
 
     struct virtio_accel_hdr hdr;
+    /* Whether hdr.op.in/out point at arrays this device allocated, rather
+     * than into the guest's own request. Only the former may be freed. */
+    bool args_owned;
     struct VirtIOAccel *vaccel;
     struct iovec *in_iov;
     struct iovec *out_iov;

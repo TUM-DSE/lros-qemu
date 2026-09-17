@@ -20,6 +20,7 @@ static void virtio_accel_init_request(VirtIOAccelReq *req,
     req->flags = 0;
     req->vq = vq;
     req->vaccel = vaccel;
+    req->args_owned = false;
     req->in_iov = NULL;
     req->out_iov = NULL;
     req->in_niov = 0;
@@ -30,13 +31,30 @@ static void virtio_accel_init_request(VirtIOAccelReq *req,
 
 static void virtio_accel_free_request(VirtIOAccelReq *req)
 {
-    if (req->hdr.op_type == VIRTIO_ACCEL_CREATE_SESSION ||
-            req->hdr.op_type == VIRTIO_ACCEL_DO_OP ||
-            req->hdr.op_type == VIRTIO_ACCEL_GET_TIMERS) {
-        if (req->hdr.op.in)
-            g_free(req->hdr.op.in);
-        if (req->hdr.op.out)
-            g_free(req->hdr.op.out);
+    /* Each argument was copied into a buffer of its own by
+     * virtio_accel_handle_req_header_data(). Freeing only the arrays retains
+     * every byte the guest ever sent through the device, which reaches the
+     * host as an out-of-memory kill of QEMU after a few GiB of traffic.
+     * Results have already been written back by the time a request is freed.
+     *
+     * Guarded by args_owned rather than by op_type: with a zero argument
+     * count the pointer is still the one the guest put in its header, and
+     * before the header is processed both point into guest memory. */
+    if (req->args_owned) {
+        AccelDevBackendArg *in = (AccelDevBackendArg *)req->hdr.op.in;
+        AccelDevBackendArg *out = (AccelDevBackendArg *)req->hdr.op.out;
+        uint32_t i;
+
+        if (in) {
+            for (i = 0; i < req->hdr.op.in_nr; i++)
+                g_free(in[i].buf);
+            g_free(in);
+        }
+        if (out) {
+            for (i = 0; i < req->hdr.op.out_nr; i++)
+                g_free(out[i].buf);
+            g_free(out);
+        }
     }
     if (req)
         g_free(req);
@@ -257,6 +275,10 @@ virtio_accel_handle_req_header_data(VirtIOAccelReq *req)
         h->op.out_nr = virtio_ldl_p(vdev, &h->op.out_nr);
         if (h->op.out_nr > 0) {
             gop_arg = g_new0(AccelDevBackendArg, h->op.out_nr);
+            /* Installed before the copies below, so that an error partway
+             * through still leaves the array reachable to be freed. */
+            h->op.out = (struct virtio_accel_arg *)gop_arg;
+            req->args_owned = true;
             for (i = 0; i < h->op.out_nr; i++) {
                 gop_arg[i].len = h->op.out[i].len;
                 gop_arg[i].buf = g_malloc0(h->op.out[i].len);
@@ -269,10 +291,11 @@ virtio_accel_handle_req_header_data(VirtIOAccelReq *req)
                 iov_discard_front(&req->out_iov, &req->out_niov,
                                 h->op.out[i].len);
             }
-            h->op.out = (struct virtio_accel_arg *)gop_arg;
         }
         if (h->op.in_nr > 0) {
             gop_arg = g_new0(AccelDevBackendArg, h->op.in_nr);
+            h->op.in = (struct virtio_accel_arg *)gop_arg;
+            req->args_owned = true;
             int offset = 0;
             for (i = 0; i < h->op.in_nr; i++) {
                 gop_arg[i].len = h->op.in[i].len;
@@ -286,7 +309,6 @@ virtio_accel_handle_req_header_data(VirtIOAccelReq *req)
                 // don't discard these yet, we need to write them first
                 offset += h->op.in[i].len;
             }
-            h->op.in = (struct virtio_accel_arg *)gop_arg;
         }
         break;
     case VIRTIO_ACCEL_DESTROY_SESSION:
