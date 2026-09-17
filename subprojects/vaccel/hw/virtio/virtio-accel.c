@@ -274,40 +274,46 @@ virtio_accel_handle_req_header_data(VirtIOAccelReq *req)
         h->op.in_nr = virtio_ldl_p(vdev, &h->op.in_nr);
         h->op.out_nr = virtio_ldl_p(vdev, &h->op.out_nr);
         if (h->op.out_nr > 0) {
+            /* The lengths are still the guest's, so they are read through a
+             * pointer of their own: the array below replaces h->op.out and has
+             * a different layout. Installed before the copies, so that an error
+             * partway through leaves it reachable to be freed. */
+            const struct virtio_accel_arg *garg = h->op.out;
+
             gop_arg = g_new0(AccelDevBackendArg, h->op.out_nr);
-            /* Installed before the copies below, so that an error partway
-             * through still leaves the array reachable to be freed. */
             h->op.out = (struct virtio_accel_arg *)gop_arg;
             req->args_owned = true;
             for (i = 0; i < h->op.out_nr; i++) {
-                gop_arg[i].len = h->op.out[i].len;
-                gop_arg[i].buf = g_malloc0(h->op.out[i].len);
+                gop_arg[i].len = garg[i].len;
+                gop_arg[i].buf = g_malloc0(garg[i].len);
                 r = iov_to_buf(req->out_iov, req->out_niov, 0, gop_arg[i].buf,
-                                h->op.out[i].len);
-                if (unlikely(r !=  h->op.out[i].len)) {
+                                garg[i].len);
+                if (unlikely(r !=  garg[i].len)) {
                     virtio_error(vdev, "virtio-accel gop_arg[%d] too short", i);
                     return;
                 }
                 iov_discard_front(&req->out_iov, &req->out_niov,
-                                h->op.out[i].len);
+                                garg[i].len);
             }
         }
         if (h->op.in_nr > 0) {
+            const struct virtio_accel_arg *garg = h->op.in;
+            int offset = 0;
+
             gop_arg = g_new0(AccelDevBackendArg, h->op.in_nr);
             h->op.in = (struct virtio_accel_arg *)gop_arg;
             req->args_owned = true;
-            int offset = 0;
             for (i = 0; i < h->op.in_nr; i++) {
-                gop_arg[i].len = h->op.in[i].len;
-                gop_arg[i].buf = g_malloc0(h->op.in[i].len);
+                gop_arg[i].len = garg[i].len;
+                gop_arg[i].buf = g_malloc0(garg[i].len);
                 r = iov_to_buf(req->in_iov, req->in_niov, offset, gop_arg[i].buf,
-                                h->op.in[i].len);
-                if (unlikely(r !=  h->op.in[i].len)) {
+                                garg[i].len);
+                if (unlikely(r !=  garg[i].len)) {
                     virtio_error(vdev, "virtio-accel gop_arg[%d] too short", i);
                     return;
                 }
                 // don't discard these yet, we need to write them first
-                offset += h->op.in[i].len;
+                offset += garg[i].len;
             }
         }
         break;
